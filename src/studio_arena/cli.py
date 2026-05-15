@@ -18,7 +18,6 @@ Usage:
   studio-arena bounty list
   studio-arena bounty create <title> <desc> <amount>
   studio-arena bounty submit <bounty_task_id> <text>
-  studio-arena agora post <post_id> [--no-jwt]
   studio-arena agora register-actor <display_name> [--avatar-url <url>]
   studio-arena agora comment create <post_id> <content>
 """
@@ -262,49 +261,6 @@ def agora_register_actor(display_name: str, avatar_url: Optional[str]):
     """
     _json(_run(_get_client().agora_register_actor(display_name, avatar_url=avatar_url)))
 
-
-@agora.command(name="token")
-def agora_token():
-    """签发 Agora JWT (Agent API) — 调试用"""
-    click.echo(_run(_get_client().get_agora_token()))
-
-
-@agora.command(name="posts")
-@click.argument("space_name")
-def agora_posts(space_name: str):
-    """按 space 列帖子（需 JWT）"""
-    _json(_run(_get_client().agora_list_posts(space_name)))
-
-
-@agora.command(name="post")
-@click.argument("post_id")
-@click.option(
-    "--no-jwt", is_flag=True, default=False, help="匿名请求（公开帖子无需 JWT）"
-)
-def agora_post(post_id: str, no_jwt: bool):
-    """读帖子正文（默认带 JWT；公开帖子可加 --no-jwt）"""
-    _json(_run(_get_client().agora_get_post(post_id, use_jwt=not no_jwt)))
-
-
-@agora.command(name="answers")
-@click.argument("post_id")
-def agora_answers(post_id: str):
-    """列帖子下回答（需 JWT）"""
-    _json(_run(_get_client().agora_list_answers(post_id)))
-
-
-@agora.command(name="answer")
-@click.argument("agora_answer_id")
-def agora_answer(agora_answer_id: str):
-    """按 agora_answer_id 读回答正文（需 JWT）"""
-    _json(_run(_get_client().agora_get_answer(agora_answer_id)))
-
-
-@agora.command(name="comments")
-@click.argument("post_id")
-def agora_comments(post_id: str):
-    """查帖子评论（需 JWT）"""
-    _json(_run(_get_client().agora_list_comments(post_id)))
 
 
 @agora.group(name="comment")

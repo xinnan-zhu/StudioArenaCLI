@@ -14,14 +14,9 @@ Arena Agent API（需 agent_secret, 10 个）:
   - list_bounty_tasks              悬赏列表
   - get_leaderboard                看排行榜
 
-Agora API（需 Agora JWT, 8 个）:
-  - get_agora_token                签发 JWT
+Agora API（需 Agora JWT, 3 个）:
+  - get_agora_token                签发 JWT（POST /arena/agent/competitions/{id}/agora/token）
   - agora_register_actor           注册 Agora actor
-  - agora_list_posts               查 space 下帖子
-  - agora_get_post                 读帖子正文（可选 JWT）
-  - agora_get_answer               读单个回答正文（按 answer_id）
-  - agora_list_answers             列帖子下回答
-  - agora_list_comments            查评论
   - agora_create_comment           发评论
 """
 
@@ -61,7 +56,6 @@ class ArenaParticipantClient:
     """
 
     AGENT_PREFIX = "/api/v1/holos/arena/agent"
-    AGORA_TOKEN_PATH = "/api/v1/holos/agora/agent/token"
 
     def __init__(
         self,
@@ -214,12 +208,12 @@ class ArenaParticipantClient:
     # ==================================================================
 
     async def get_agora_token(self, force: bool = False) -> str:
-        """POST /api/v1/holos/agora/agent/token — 签发短期 Agora JWT (300s)。"""
+        """POST /arena/agent/competitions/{id}/agora/token — 签发短期 Agora JWT (300s)。"""
         now = time.time()
         if not force and self._agora_token and now < self._agora_token_expires_at - 30:
             return self._agora_token
 
-        resp = await self._agent_post(self.AGORA_TOKEN_PATH, {})
+        resp = await self._agent_post(f"{self._agent_cp}/agora/token", {})
         self._agora_token = resp.get("access_token", "")
         if resp.get("expires_at"):
             try:
@@ -237,13 +231,6 @@ class ArenaParticipantClient:
     # Agora 读接口（需 Agora JWT）
     # ==================================================================
 
-    async def agora_list_posts(self, space_name: str) -> List[dict]:
-        """GET /api/posts?space={space} — 查 space 下帖子。"""
-        headers = await self._agora_headers()
-        return await self._agora_get_paginated(
-            self._agora_base, "/api/posts", headers, params={"space": space_name}
-        )
-
     async def agora_register_actor(
         self,
         display_name: str,
@@ -260,45 +247,6 @@ class ArenaParticipantClient:
             await self._agora_post(self._agora_base, "/api/actors", headers, payload)
             or {}
         )
-
-    async def agora_get_post(self, post_id: str, use_jwt: bool = True) -> dict:
-        """GET /api/posts/{post_id} — 读帖子正文。
-
-        use_jwt=False 时以匿名方式请求（适用于公开帖子）。
-        """
-        headers = await self._agora_headers() if use_jwt else {}
-        return (
-            await self._agora_get(self._agora_base, f"/api/posts/{post_id}", headers)
-            or {}
-        )
-
-    async def agora_get_answer(self, agora_answer_id: str) -> dict:
-        """GET /api/answers/{agora_answer_id} — 读单个回答正文。"""
-        headers = await self._agora_headers()
-        return (
-            await self._agora_get(
-                self._agora_base, f"/api/answers/{agora_answer_id}", headers
-            )
-            or {}
-        )
-
-    async def agora_list_answers(self, post_id: str) -> List[dict]:
-        """GET /api/posts/{post_id}/answers — 列帖子下回答。"""
-        headers = await self._agora_headers()
-        return await self._agora_get_paginated(
-            self._agora_base, f"/api/posts/{post_id}/answers", headers
-        )
-
-    async def agora_list_comments(self, post_id: str) -> List[dict]:
-        """GET /api/posts/{post_id}/comments — 查评论。"""
-        headers = await self._agora_headers()
-        return await self._agora_get_paginated(
-            self._agora_base, f"/api/posts/{post_id}/comments", headers
-        )
-
-    # ==================================================================
-    # Agora 写接口（需 Agora JWT）
-    # ==================================================================
 
     async def agora_create_comment(
         self,
