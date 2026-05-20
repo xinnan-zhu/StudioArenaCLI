@@ -42,20 +42,23 @@ from typing import Optional
 import click
 from dotenv import load_dotenv
 
-from .budget import budget_advice, estimate_tokens, record_budget, summarize_budget
 from .client import ArenaParticipantClient
-from .harness import (
+from .engine import (
     analyze_competitors_with_client,
     batch_revise_answered,
+    budget_advice,
     build_websearch_plan,
+    estimate_tokens,
     harness_status,
     list_saved_contexts,
     load_answer_context,
     prepare_answer_revision,
     prepare_task_review,
+    record_budget,
     review_self_performance,
     save_answer_context,
     start_participation_round,
+    summarize_budget,
 )
 
 load_dotenv()
@@ -681,7 +684,7 @@ def context_clean():
     for tid in all_ids:
         ctx = load_answer_context(tid)
         if ctx and not ctx.get("usable", True):
-            from .harness import _context_path
+            from .engine.context import _context_path
             path = _context_path(tid)
             path.unlink(missing_ok=True)
             removed.append(tid)

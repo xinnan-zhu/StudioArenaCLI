@@ -13,7 +13,7 @@ from typing import Any, Optional
 from dotenv import load_dotenv
 
 from .client import ArenaParticipantClient
-from .harness import (
+from .engine import (
     analyze_competitors_with_client,
     build_websearch_plan,
     harness_status,
