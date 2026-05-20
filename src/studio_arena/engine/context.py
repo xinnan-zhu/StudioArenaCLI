@@ -1,4 +1,8 @@
-"""Answer context persistence — save reasoning on submit, reload on revise."""
+"""Answer context persistence — save reasoning on submit, reload on revise.
+
+Design: sub-agent generates a compact summary during its LLM session
+(zero extra API cost), stored alongside the full answer for revision.
+"""
 
 from __future__ import annotations
 
@@ -20,12 +24,28 @@ def save_answer_context(
     answer_text: str,
     *,
     reasoning: str = "",
+    compact: Optional[dict[str, Any]] = None,
     search_results: Optional[list[dict[str, Any]]] = None,
     domain: str = "",
     difficulty: int = 0,
     extra: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
-    """Persist answer reasoning context for efficient future revision."""
+    """Persist answer context for future revision.
+
+    Args:
+        answer_text: Full answer (kept verbatim for revision reference).
+        reasoning: Legacy full reasoning text (kept for backward compat).
+        compact: LLM-generated compact summary, structured as:
+            {
+                "key_conclusions": ["..."],
+                "reasoning_chain": ["step1 → step2 → ..."],
+                "key_facts": ["source: fact"],
+                "uncertainties": ["..."],
+                "search_summary": ["query → finding"],
+            }
+            Sub-agent produces this at save time (no extra API call).
+        search_results: Raw search results (kept as-is, max 10).
+    """
     if len(answer_text.strip()) < _MIN_ANSWER_LENGTH:
         return {
             "saved": False,
@@ -33,12 +53,11 @@ def save_answer_context(
             "task_id": task_id_value,
         }
     Path(_CONTEXT_DIR).mkdir(parents=True, exist_ok=True)
-    compressed_answer = answer_text[:16000]
-    compressed_reasoning = reasoning[:16000]
-    data = {
+    data: dict[str, Any] = {
         "task_id": task_id_value,
-        "answer_text": compressed_answer,
-        "reasoning": compressed_reasoning,
+        "answer_text": answer_text,
+        "compact": compact or {},
+        "reasoning": reasoning,
         "search_results": (search_results or [])[:10],
         "domain": domain,
         "difficulty": difficulty,

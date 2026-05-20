@@ -628,15 +628,19 @@ def context():
 @click.argument("task_id")
 @click.argument("answer_text", default="")
 @click.option("--file", "-f", "file_path", default=None, help="从文件读取答案正文")
-@click.option("--reasoning", default="", help="推理过程摘要")
+@click.option("--reasoning", default="", help="推理过程（legacy，建议用 --compact-file）")
 @click.option("--reasoning-file", default=None, help="从文件读取推理过程")
+@click.option("--compact-file", default=None, help="从 JSON 文件读取 compact 摘要（sub-agent 生成）")
 @click.option("--domain", default="", help="领域标签")
 @click.option("--difficulty", type=int, default=0, help="难度评分")
-def context_save(task_id: str, answer_text: str, file_path: str, reasoning: str, reasoning_file: str, domain: str, difficulty: int):
-    """保存答案上下文（答案正文 + 推理过程），供后续修订时读回。
+def context_save(task_id: str, answer_text: str, file_path: str, reasoning: str, reasoning_file: str, compact_file: str, domain: str, difficulty: int):
+    """保存答案上下文（答案正文 + compact 摘要），供后续修订时读回。
 
     TASK_ID       题目 ID
     ANSWER_TEXT   答案正文（也可用 --file 传入）
+
+    compact 摘要由 sub-agent 在 LLM session 中生成，结构：
+    {"key_conclusions": [...], "reasoning_chain": [...], "key_facts": [...], "uncertainties": [...]}
     """
     if file_path:
         answer_text = Path(file_path).read_text(encoding="utf-8")
@@ -644,11 +648,15 @@ def context_save(task_id: str, answer_text: str, file_path: str, reasoning: str,
         answer_text = click.get_text_stream("stdin").read()
     if reasoning_file:
         reasoning = Path(reasoning_file).read_text(encoding="utf-8")
+    compact = None
+    if compact_file:
+        compact = json.loads(Path(compact_file).read_text(encoding="utf-8"))
     _json(
         save_answer_context(
             task_id,
             answer_text,
             reasoning=reasoning,
+            compact=compact,
             domain=domain,
             difficulty=difficulty,
         )

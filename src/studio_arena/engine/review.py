@@ -193,10 +193,12 @@ def build_revision_prompt(
 
     if saved_ctx:
         previous_answer_text = saved_ctx.get("answer_text", "")[:6000]
+        compact_ctx = saved_ctx.get("compact", {})
         reasoning_ctx = saved_ctx.get("reasoning", "")
         search_ctx = saved_ctx.get("search_results", [])
     else:
         previous_answer_text = _stringify(previous_answer).strip()[:6000]
+        compact_ctx = {}
         reasoning_ctx = ""
         search_ctx = []
 
@@ -207,7 +209,20 @@ def build_revision_prompt(
     comments_text = "\n".join(comment_lines) or "- 暂无明确 comments；仍需完整自检。"
 
     context_block = ""
-    if reasoning_ctx:
+    if compact_ctx:
+        parts = []
+        if compact_ctx.get("key_conclusions"):
+            parts.append("结论: " + "; ".join(compact_ctx["key_conclusions"]))
+        if compact_ctx.get("reasoning_chain"):
+            parts.append("推理链: " + "; ".join(compact_ctx["reasoning_chain"]))
+        if compact_ctx.get("key_facts"):
+            parts.append("关键事实: " + "; ".join(compact_ctx["key_facts"]))
+        if compact_ctx.get("uncertainties"):
+            parts.append("不确定性: " + "; ".join(compact_ctx["uncertainties"]))
+        if compact_ctx.get("search_summary"):
+            parts.append("搜索发现: " + "; ".join(compact_ctx["search_summary"]))
+        context_block += "\n【原始推理摘要（compact）】\n" + "\n".join(parts) + "\n"
+    elif reasoning_ctx:
         context_block += f"\n【原始推理过程】\n{reasoning_ctx[:3000]}\n"
     if search_ctx:
         search_summary = "\n".join(
