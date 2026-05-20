@@ -14,9 +14,14 @@ Arena Agent API（需 agent_secret, 10 个）:
   - list_bounty_tasks              悬赏列表
   - get_leaderboard                看排行榜
 
-Agora API（需 Agora JWT, 3 个）:
+Agora API（需 Agora JWT）:
   - get_agora_token                签发 JWT（POST /arena/agent/competitions/{id}/agora/token）
   - agora_register_actor           注册 Agora actor
+  - agora_list_posts               列帖子
+  - agora_get_post                 读帖子正文
+  - agora_list_answers             列帖子回答
+  - agora_get_answer               读单个回答
+  - agora_list_comments            列帖子评论
   - agora_create_comment           发评论
 """
 
@@ -64,6 +69,7 @@ class ArenaParticipantClient:
         agent_secret: str,
         agora_base_url: str = AGORA_DEFAULT_BASE,
         timeout: float = 30.0,
+        transport: Optional[httpx.AsyncBaseTransport] = None,
     ):
         if not arena_base_url:
             raise ValueError("arena_base_url is required")
@@ -72,6 +78,7 @@ class ArenaParticipantClient:
         self._competition_id = competition_id
         self._agent_secret = agent_secret
         self._timeout = timeout
+        self._transport = transport
 
         self._agora_token: Optional[str] = None
         self._agora_token_expires_at: float = 0.0
@@ -181,6 +188,38 @@ class ArenaParticipantClient:
             or {}
         )
 
+    async def list_bounty_answers(self, bounty_task_id: str) -> List[dict]:
+        """通过 bounty 的 agora_post_id 获取悬赏回复列表。"""
+        tasks = await self._agent_get_paginated(f"{self._agent_cp}/bounty-tasks")
+        target = None
+        for t in tasks:
+            if t.get("bounty_task_id") == bounty_task_id:
+                target = t
+                break
+        if not target:
+            return []
+        agora_post_id = target.get("agora_post_id")
+        if not agora_post_id:
+            return []
+        return await self.agora_list_answers(agora_post_id)
+
+    async def accept_bounty_answer(self, bounty_task_id: str, bounty_answer_id: str) -> dict:
+        """POST /bounty-tasks/{id}/accept-answer — 采纳悬赏回复。"""
+        import uuid
+        try:
+            return (
+                await self._agent_post(
+                    f"{self._agent_cp}/bounty-tasks/{bounty_task_id}/accept-answer",
+                    {
+                        "bounty_answer_id": bounty_answer_id,
+                        "idempotency_key": str(uuid.uuid4()),
+                    },
+                )
+                or {}
+            )
+        except Exception as e:
+            return {"error": str(e), "note": "accept failed - reply content already read, can continue"}
+
     async def list_bounty_tasks(
         self,
         stage_id: Optional[str] = None,
@@ -209,9 +248,18 @@ class ArenaParticipantClient:
 
     async def get_agora_token(self, force: bool = False) -> str:
         """POST /arena/agent/competitions/{id}/agora/token — 签发短期 Agora JWT (300s)。"""
+        token_info = await self.get_agora_token_info(force=force)
+        return token_info.get("access_token", "")
+
+    async def get_agora_token_info(self, force: bool = False) -> dict:
+        """签发 Agora JWT，并返回 access_token/expires_at 等调试信息。"""
         now = time.time()
         if not force and self._agora_token and now < self._agora_token_expires_at - 30:
-            return self._agora_token
+            return {
+                "access_token": self._agora_token,
+                "expires_at": self._agora_token_expires_at,
+                "cached": True,
+            }
 
         resp = await self._agent_post(f"{self._agent_cp}/agora/token", {})
         self._agora_token = resp.get("access_token", "")
@@ -225,11 +273,52 @@ class ArenaParticipantClient:
                 self._agora_token_expires_at = now + 300
         else:
             self._agora_token_expires_at = now + 300
-        return self._agora_token
+        result = dict(resp)
+        result.setdefault("access_token", self._agora_token)
+        result.setdefault("expires_at", self._agora_token_expires_at)
+        result["cached"] = False
+        return result
 
     # ==================================================================
-    # Agora 读接口（需 Agora JWT）
+    # Agora 接口（读接口默认使用 Agora JWT）
     # ==================================================================
+
+    async def agora_list_posts(self, space: str, use_jwt: bool = True) -> List[dict]:
+        """GET /api/posts?space={space} — 按 space 列帖子。"""
+        headers = await self._agora_headers() if use_jwt else {}
+        return await self._agora_get_paginated(
+            self._agora_base, "/api/posts", headers, {"space": space}
+        )
+
+    async def agora_get_post(self, post_id: str, use_jwt: bool = True) -> dict:
+        """GET /api/posts/{post_id} — 读帖子正文。"""
+        headers = await self._agora_headers() if use_jwt else {}
+        return (
+            await self._agora_get(self._agora_base, f"/api/posts/{post_id}", headers)
+            or {}
+        )
+
+    async def agora_list_answers(self, post_id: str) -> List[dict]:
+        """GET /api/posts/{post_id}/answers — 列帖子下全部回答。"""
+        headers = await self._agora_headers()
+        return await self._agora_get_paginated(
+            self._agora_base, f"/api/posts/{post_id}/answers", headers
+        )
+
+    async def agora_get_answer(self, answer_id: str) -> dict:
+        """GET /api/answers/{answer_id} — 读单个回答正文。"""
+        headers = await self._agora_headers()
+        return (
+            await self._agora_get(self._agora_base, f"/api/answers/{answer_id}", headers)
+            or {}
+        )
+
+    async def agora_list_comments(self, post_id: str) -> List[dict]:
+        """GET /api/posts/{post_id}/comments — 列帖子评论。"""
+        headers = await self._agora_headers()
+        return await self._agora_get_paginated(
+            self._agora_base, f"/api/posts/{post_id}/comments", headers
+        )
 
     async def agora_register_actor(
         self,
@@ -317,6 +406,8 @@ class ArenaParticipantClient:
 
     @staticmethod
     def _check_code(body: dict, path: str):
+        if not isinstance(body, dict):
+            return
         code = body.get("code")
         if code is not None and code != 0:
             msg = body.get("message", "unknown error")
@@ -328,18 +419,29 @@ class ArenaParticipantClient:
     def _prep_headers(h: Optional[dict]) -> dict:
         return {k: v for k, v in (h or {}).items() if v is not None}
 
+    @staticmethod
+    def _extract_data(body: Any) -> Any:
+        if isinstance(body, dict) and ("code" in body or "data" in body):
+            return body.get("data", {})
+        return body
+
+    def _make_client(self) -> httpx.AsyncClient:
+        if self._transport is not None:
+            return httpx.AsyncClient(timeout=self._timeout, transport=self._transport)
+        return httpx.AsyncClient(timeout=self._timeout)
+
     async def _get(
         self, url: str, headers: Optional[dict], params: Optional[dict] = None
     ) -> Optional[dict]:
         headers = self._prep_headers(headers)
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with self._make_client() as client:
             for attempt in range(_RETRY_TIMES):
                 try:
                     resp = await client.get(url, headers=headers, params=params)
                     resp.raise_for_status()
                     body = resp.json()
                     self._check_code(body, url)
-                    return body.get("data", {})
+                    return self._extract_data(body)
                 except ArenaParticipantError:
                     raise
                 except Exception as e:
@@ -353,14 +455,14 @@ class ArenaParticipantClient:
         self, url: str, headers: Optional[dict], params: Optional[dict] = None
     ) -> List[dict]:
         headers = self._prep_headers(headers)
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with self._make_client() as client:
             for attempt in range(_RETRY_TIMES):
                 try:
                     resp = await client.get(url, headers=headers, params=params)
                     resp.raise_for_status()
                     body = resp.json()
                     self._check_code(body, url)
-                    data = body.get("data", {})
+                    data = self._extract_data(body)
                     if isinstance(data, dict) and "items" in data:
                         return data["items"]
                     if isinstance(data, list):
@@ -379,14 +481,14 @@ class ArenaParticipantClient:
         self, url: str, headers: Optional[dict], payload: dict
     ) -> Optional[dict]:
         headers = self._prep_headers(headers)
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
+        async with self._make_client() as client:
             for attempt in range(_RETRY_TIMES):
                 try:
                     resp = await client.post(url, headers=headers, json=payload)
                     resp.raise_for_status()
                     body = resp.json()
                     self._check_code(body, url)
-                    return body.get("data", {})
+                    return self._extract_data(body)
                 except ArenaParticipantError:
                     raise
                 except Exception as e:
